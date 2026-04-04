@@ -1,102 +1,62 @@
 # Vomo
 
-A native iOS app for reading and exploring your [Obsidian](https://obsidian.md) vault on the go. Built with SwiftUI.
+A native iOS app for reading, searching, and capturing notes in your cloud-based markdown vault. Your notes live in iCloud Drive as plain `.md` files — Vomo just gives you a fast, voice-powered way to work with them on the go.
+
+Inspired by [Obsidian](https://obsidian.md), but Vomo is not an Obsidian app. It works with any folder of markdown files synced through iCloud Drive.
 
 ## Features
 
-**Read anywhere** -- Open any vault from iCloud Drive or local storage. Markdown renders beautifully with full support for frontmatter, wiki-links, tags, code blocks, and tables.
+### Read & Browse
 
-**Voice search** -- Find notes by talking. An agentic voice interface powered by Grok uses tool-calling to search your vault, open files, and answer questions about your notes in real time.
+- **Markdown rendering** — Frontmatter, wiki-links, tags, code blocks, tables, and inline formatting all render natively.
+- **Folder browser** — Navigate your vault's folder hierarchy with expand/collapse tree navigation.
+- **Calendar view** — See notes laid out on a calendar by date. Swipe between months, tap any date to jump to that day's notes.
+- **Full-text search** — Fast indexed search across all your notes with ranked results.
+- **iCloud sync** — Automatic downloading and caching of iCloud Drive files. Works offline after first sync.
+- **Instant launch** — Cache-first loading: notes display immediately, then a background scan picks up changes.
 
-**Voice creation** -- Record voice memos and conversations with AI-assisted summarization. Choose recording modes (one-sided or conversational) and save modes (user thoughts, interaction notes, or raw transcript). Density slider controls compression level. Toggleable paragraphs let you include/exclude sections before saving.
+### Voice
 
-**Quick dictation** -- Long-press the Create button for instant speech-to-text using Apple's on-device speech recognition. Works offline, no API key needed. Transcriptions are saved to your vault and can be pulled into notes later.
+- **Voice chat** — Real-time voice conversations powered by configurable AI providers. Talk to search your vault, discuss your notes, and get answers from your own content.
+- **Voice transcription** — Record voice memos and save them as markdown notes. Multiple recording modes with AI-assisted summarization.
+- **Quick dictation** — Instant speech-to-text using Apple's on-device recognition. Works offline, no API key needed.
+- **Multi-vendor support** — Choose your preferred provider for both real-time voice and transcription: xAI, OpenAI, Deepgram, or Apple's on-device engine. Bring your own API keys — calls go directly to the provider.
 
-**Knowledge graph** -- Interactive force-directed graph visualization of your vault's link structure. See how your notes connect at a glance.
+### Create & Edit
 
-**Calendar view** -- Daily notes displayed on a calendar. Tap any date to see what you wrote.
+- **Note creation** — Create notes via text or voice. Pick a destination folder, add frontmatter, and save.
+- **Markdown editor** — Edit notes with a formatting toolbar (bold, italic, code, lists, links).
+- **Property editor** — Edit YAML frontmatter fields directly.
 
-**Folder browser** -- Navigate your vault's folder structure with expand/collapse tree navigation.
+### Dataview Queries
 
-**Dataview queries** -- Supports a subset of Obsidian Dataview's DQL syntax (`TABLE`, `LIST`, `WHERE`, `SORT`, `FROM`). Query your vault's metadata directly from your notes.
+Supports a subset of Obsidian Dataview's DQL syntax (`TABLE`, `LIST`, `WHERE`, `SORT`, `FROM`). Query your vault's metadata directly from your notes — results render inline.
 
-**iCloud sync** -- Automatic downloading and caching of iCloud Drive files with progress tracking. Works offline after first sync.
+### Apple Watch
 
-**Fast** -- Two-phase loading: cached files display instantly, then a background scan picks up changes. Progressive UI updates as files are indexed.
+- **Wrist capture** — Raise, tap, speak. Voice recordings sync to your vault via the iPhone app.
+- **Voice conversations** — Start AI-powered voice sessions directly from your watch.
 
-## Requirements
+## On-Device by Default
 
-- iOS 17.0+
-- Xcode 15+
-- [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+Everything runs on your device. Your notes never leave your phone unless you opt into cloud-powered voice features (transcription, voice chat). All AI providers and API calls are transparent — you always know what's being called and where your data goes.
 
 ## Getting Started
 
 ```bash
-# Clone
-git clone https://github.com/bryanboyan/vomo.git
-cd vomo
+git clone https://github.com/bryanboyan/vomo-notes.git
+cd vomo-notes
 
-# Generate Xcode project
+# Generate Xcode project (requires XcodeGen)
 xcodegen generate
 
 # Open in Xcode
 open Vomo.xcodeproj
 ```
 
-Build and run on a simulator or device. On first launch, pick your Obsidian vault folder or try the built-in sample vault.
+Build and run on a simulator or device. On first launch, pick your vault folder from iCloud Drive.
 
-## Architecture
-
-- **XcodeGen** -- `project.yml` is the source of truth. Run `xcodegen generate` after changes.
-- **SwiftUI + @Observable** -- `VaultManager`, `FavoritesManager`, `DataviewEngine` injected via `.environment()`.
-- **GRDB** -- SQLite-backed metadata index for Dataview queries.
-- **MarkdownUI** -- Rich markdown rendering.
-- **No server** -- Everything runs on-device. Your notes never leave your phone (except when using optional API features).
-
-## Testing
-
-```bash
-xcodebuild test -project Vomo.xcodeproj -scheme VomoTests \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
-```
-
-64 tests across 7 suites covering parsing, indexing, graph building, caching, and query execution.
-
-## Roadmap
-
-### Free tier (no API key required)
-
-Everything that runs on-device stays free:
-- Vault browsing, search, calendar, knowledge graph
-- Dataview queries
-- Quick dictation via Apple's on-device speech recognition
-- Note creation and editing
-- iCloud sync
-
-### Paid tier (API-powered features)
-
-Features that call remote APIs require either a subscription or bringing your own API key. All models and providers are transparent — you always know what's being called.
-
-- **Voice chat & search** -- Real-time voice conversations powered by xAI Grok Realtime API (WebSocket). Agentic tool-calling to search, open, and discuss your notes.
-- **AI summarization** -- Turn voice transcripts into structured notes with configurable density, save modes, and toggleable paragraphs. Uses xAI Grok text API.
-- **Cloud transcription** -- Higher-quality speech-to-text via Whisper or ElevenLabs Scribe as an upgrade from Apple's on-device recognition.
-- **BYOK (Bring Your Own Key)** -- Enter your own API keys for xAI, OpenAI, or other providers. No middleman, no markup — calls go directly to the provider.
-
-### People & connections
-
-- **Contact book import** -- Pull contacts from the system address book. Each person becomes a note in your vault (e.g. `People/Jane Smith.md`) with frontmatter for phone, email, company, and relationship tags.
-- **Connection notes** -- After a meeting or conversation, record voice notes tagged to a person. AI summarization extracts key topics, action items, and follow-ups specific to that relationship.
-- **Relationship timeline** -- See all notes, voice memos, and mentions linked to a person in chronological order. Understand the full history of a relationship at a glance.
-- **Mention linking** -- When a person's name appears in any note, auto-link to their People page. The knowledge graph shows your social connections alongside topic connections.
-- **Voice mode context** -- "What did I last discuss with Sarah?" — voice search understands people as first-class entities in your vault.
-
-### Apple Watch companion
-
-- **Quick dictation** -- Raise wrist, tap, speak, done. Transcriptions sync to your vault via the iPhone app.
-- **Recent notes** -- Browse and read recent or favorited notes from your wrist.
-- **Voice capture** -- Start a voice memo directly from the watch, saved as a transcription for later processing on iPhone.
-- **Complications** -- Quick-launch dictation or see your daily note word count at a glance.
+**Requirements:** iOS 17.0+, watchOS 10.0+, Xcode 15+, [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 
 ## License
 
