@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=10.0, user-scalable=yes">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="graph"></canvas>
+<script>
+const canvas = document.getElementById('graph');
+const ctx = canvas.getContext('2d');
+
+let width, height;
+let isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+let animationId = null;
+let selectedNodeId = null;
+
+// Graph state
+let nodes = [];
+let edges = [];
+let nodeMap = {};
+let opacities = {};
+
+// Force simulation params
+let alpha = 1;
+const alphaDecay = 0.015;
+const alphaMin = 0.001;
+const springLength = 80;
+const springStrength = 0.03;
+const repulsion = 350;
+const damping = 0.88;
+const centerStrength = 0.003;
+
+// Type colors
+const typeColors = {
+  person: '#be4bdb',
+  topic:  '#339af0',
+  place:  '#51cf66'
+};
+
+// Transform state
+let transform = { x: 0, y: 0, k: 1 };
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  width = canvas.clientWidth;
+  height = canvas.clientHeight;
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+// Barnes-Hut Quadtree for repulsion
+class QuadTree {
+  constructor(x, y, w, h) {
+    this.x = x; this.y = y; this.w = w; this.h = h;
+    this.body = null; this.mass = 0; this.cx = 0; this.cy = 0;
+    this.children = null;
+  }
+  insert(node) {
+    if (this.mass === 0 && !this.body) {
+      this.body = node; this.mass = 1; this.cx = node.x; this.cy = node.y; return;
+    }
+    if (!this.children) {
+      this.subdivide();
+      if (this.body) { this._insertInChild(this.body); this.body = null; }
+    }
+    this._insertInChild(node);
+    this.mass++;
+    this.cx = (this.cx * (this.mass - 1) + node.x) / this.mass;
+    this.cy = (this.cy * (this.mass - 1) + node.y) / this.mass;
+  }
+  subdivide() {
+    const hw = this.w / 2, hh = this.h / 2;
+    this.children = [
+      new QuadTree(this.x, this.y, hw, hh),
+      new QuadTree(this.x + hw, this.y, hw, hh),
+      new QuadTree(this.x, this.y + hh, hw, hh),
+      new QuadTree(this.x + hw, this.y + hh, hw, hh)
+    ];
+  }
+  _insertInChild(node) {
+    const mx = this.x + this.w / 2, my = this.y + this.h / 2;
+    const i = (node.x >= mx ? 1 : 0) + (node.y >= my ? 2 : 0);
+    this.children[i].insert(node);
+  }
+  calculateForce(node, theta) {
+    if (this.mass === 0 || this.body === node) return { fx: 0, fy: 0 };
+    const dx = this.cx - node.x, dy = this.cy - node.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+    if (this.children === null || (this.w / dist) < theta) {
+      const f = -repulsion * this.mass / (dist * dist);
+      return { fx: f * dx / dist, fy: f * dy / dist };
+    }
+    let fx = 0, fy = 0;
+    for (const child of this.children) {
+      const force = child.calculateForce(node, theta);
+      fx += force.fx; fy += force.fy;
+    }
+    return { fx, fy };
+  }
+}
+
+function tick() {
+  if (nodes.length === 0) return false;
+  if (alpha < alphaMin) return false;
+
+  // Build quadtree
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of nodes) {
+    if (n.x < minX) minX = n.x; if (n.y < minY) minY = n.y;
+    if (n.x > maxX) maxX = n.x; if (n.y > maxY) maxY = n.y;
+  }
+  const pad = 50;
+  const tree = new QuadTree(minX - pad, minY - pad, maxX - minX + pad * 2, maxY - minY + pad * 2);
+  for (const n of nodes) tree.insert(n);
+
+  // Repulsion
+  for (const n of nodes) {
+    const f = tree.calculateForce(n, 0.8);
+    n.vx += f.fx * alpha;
+    n.vy += f.fy * alpha;
+  }
+
+  // Spring forces
+  for (const e of edges) {
+    const s = nodeMap[e.source], t = nodeMap[e.target];
+    if (!s || !t) continue;
+    const dx = t.x - s.x, dy = t.y - s.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+    const f = (dist - springLength) * springStrength * alpha;
+    const fx = f * dx / dist, fy = f * dy / dist;
+    s.vx += fx; s.vy += fy;
+    t.vx -= fx; t.vy -= fy;
+  }
+
+  // Center gravity
+  const cx = width / 2, cy = height / 2;
+  for (const n of nodes) {
+    n.vx += (cx - n.x) * centerStrength * alpha;
+    n.vy += (cy - n.y) * centerStrength * alpha;
+  }
+
+  // Apply velocities
+  for (const n of nodes) {
+    n.vx *= damping; n.vy *= damping;
+    n.x += n.vx; n.y += n.vy;
+  }
+
+  alpha *= (1 - alphaDecay);
+  return true;
+}
+
+function nodeRadius(n) {
+  return Math.max(6, Math.min(20, 6 + (n.mentions || 1) * 2));
+}
+
+function toScreen(x, y) {
+  return {
+    x: width / 2 + (x - width / 2) * transform.k + transform.x,
+    y: height / 2 + (y - height / 2) * transform.k + transform.y
+  };
+}
+
+function toGraph(sx, sy) {
+  return {
+    x: (sx - width / 2 - transform.x) / transform.k + width / 2,
+    y: (sy - height / 2 - transform.y) / transform.k + height / 2
+  };
+}
+
+function draw() {
+  ctx.clearRect(0, 0, width, height);
+
+  const bgColor = isDark ? '#111' : '#f8f9fa';
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, width, height);
+
+  if (nodes.length === 0) {
+    // Empty state
+    ctx.fillStyle = isDark ? '#555' : '#999';
+    ctx.font = '14px -apple-system, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Speak to see your conversation graph', width / 2, height / 2);
+    return;
+  }
+
+  const textColor = isDark ? '#e5e5e5' : '#374151';
+  const edgeBaseColor = isDark ? 'rgba(255,255,255,' : 'rgba(0,0,0,';
+
+  // Draw edges
+  for (const e of edges) {
+    const s = nodeMap[e.source], t = nodeMap[e.target];
+    if (!s || !t) continue;
+    const sp = toScreen(s.x, s.y);
+    const tp = toScreen(t.x, t.y);
+    const srcOp = opacities[e.source] || 1;
+    const tgtOp = opacities[e.target] || 1;
+    const edgeOp = Math.min(srcOp, tgtOp) * 0.4;
+
+    ctx.strokeStyle = edgeBaseColor + edgeOp + ')';
+    ctx.lineWidth = 1.2 * transform.k;
+    ctx.beginPath();
+    ctx.moveTo(sp.x, sp.y);
+    ctx.lineTo(tp.x, tp.y);
+    ctx.stroke();
+  }
+
+  // Draw nodes
+  for (const n of nodes) {
+    const p = toScreen(n.x, n.y);
+    const rad = nodeRadius(n) * Math.min(1.5, transform.k);
+    const op = opacities[n.id] || 1;
+    const color = typeColors[n.type] || typeColors.topic;
+    const isSelected = n.id === selectedNodeId;
+
+    // Glow for fresh/selected nodes
+    if (op > 0.8 || isSelected) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, rad + 4 * transform.k, 0, Math.PI * 2);
+      ctx.fillStyle = color + (isSelected ? '60' : '25');
+      ctx.fill();
+    }
+
+    // Node circle
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
+    ctx.globalAlpha = op;
+
+    if (isSelected) {
+      ctx.fillStyle = '#ffd43b';
+      ctx.shadowColor = '#ffd43b';
+      ctx.shadowBlur = 12;
+    } else {
+      ctx.fillStyle = color;
+      ctx.shadowBlur = 0;
+    }
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+
+    // Label
+    if (op > 0.2) {
+      const fontSize = Math.max(9, Math.min(13, 11 * transform.k));
+      ctx.font = (isSelected ? 'bold ' : '') + fontSize + 'px -apple-system, system-ui, sans-serif';
+      ctx.fillStyle = textColor;
+      ctx.globalAlpha = op;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(n.label, p.x, p.y + rad + 3);
+      ctx.globalAlpha = 1;
+    }
+
+    // Type icon (small text indicator)
+    if (op > 0.5 && transform.k > 0.6) {
+      const icon = n.type === 'person' ? '\u{1F464}' : n.type === 'place' ? '\u{1F4CD}' : '';
+      if (icon) {
+        ctx.font = (8 * transform.k) + 'px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.globalAlpha = op * 0.7;
+        ctx.fillText(icon, p.x, p.y - rad - 1);
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  // Legend
+  drawLegend();
+}
+
+function drawLegend() {
+  const legendX = 12, legendY = 12;
+  const items = [
+    { label: 'People', color: typeColors.person },
+    { label: 'Topics', color: typeColors.topic },
+    { label: 'Places', color: typeColors.place }
+  ];
+
+  ctx.font = '10px -apple-system, system-ui, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+
+  let y = legendY;
+  for (const item of items) {
+    // Only show if we have nodes of this type
+    const hasType = nodes.some(n =>
+      (item.label === 'People' && n.type === 'person') ||
+      (item.label === 'Topics' && n.type === 'topic') ||
+      (item.label === 'Places' && n.type === 'place')
+    );
+    if (!hasType) continue;
+
+    ctx.beginPath();
+    ctx.arc(legendX + 5, y + 6, 4, 0, Math.PI * 2);
+    ctx.fillStyle = item.color;
+    ctx.fill();
+    ctx.fillStyle = isDark ? '#aaa' : '#666';
+    ctx.fillText(item.label, legendX + 14, y + 6);
+    y += 18;
+  }
+}
+
+function animate() {
+  const active = tick();
+  draw();
+  if (active) {
+    animationId = requestAnimationFrame(animate);
+  }
+}
+
+function restartSimulation() {
+  alpha = 0.5;
+  if (!animationId) animate();
+}
+
+// Called from Swift to update the full graph
+function updateGraph(data) {
+  try {
+    if (typeof data === 'string') data = JSON.parse(data);
+
+    const oldPositions = {};
+    for (const n of nodes) {
+      oldPositions[n.id] = { x: n.x, y: n.y, vx: n.vx, vy: n.vy };
+    }
+
+    nodes = (data.nodes || []).map(n => {
+      const old = oldPositions[n.id];
+      return {
+        ...n,
+        x: old ? old.x : width / 2 + (Math.random() - 0.5) * Math.min(width * 0.5, 200),
+        y: old ? old.y : height / 2 + (Math.random() - 0.5) * Math.min(height * 0.5, 200),
+        vx: old ? old.vx * 0.5 : 0,
+        vy: old ? old.vy * 0.5 : 0
+      };
+    });
+
+    edges = data.edges || [];
+    nodeMap = {};
+    for (const n of nodes) nodeMap[n.id] = n;
+
+    restartSimulation();
+  } catch (e) {
+    console.error('Failed to update voice graph:', e);
+  }
+}
+
+// Called from Swift to update opacities for fading
+function updateOpacities(data) {
+  try {
+    if (typeof data === 'string') data = JSON.parse(data);
+    opacities = data;
+    draw();
+  } catch (e) {
+    console.error('Failed to update opacities:', e);
+  }
+}
+
+// Touch handling
+let touchState = { down: false, startPos: null, lastPos: null, dragNode: null };
+let lastPinchDist = 0;
+
+function findNodeAt(gx, gy) {
+  let closest = null, minDist = Infinity;
+  for (const n of nodes) {
+    const r = nodeRadius(n) + 15 / transform.k;
+    const dx = n.x - gx, dy = n.y - gy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < r && dist < minDist) {
+      closest = n; minDist = dist;
+    }
+  }
+  return closest;
+}
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (e.touches.length === 1) {
+    const t = e.touches[0];
+    touchState.down = true;
+    touchState.startPos = { x: t.clientX, y: t.clientY };
+    touchState.lastPos = { x: t.clientX, y: t.clientY };
+    const gp = toGraph(t.clientX, t.clientY);
+    touchState.dragNode = findNodeAt(gp.x, gp.y);
+  }
+  if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    lastPinchDist = Math.sqrt(dx * dx + dy * dy);
+    touchState.dragNode = null;
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length === 1) {
+    const t = e.touches[0];
+    if (touchState.dragNode) {
+      const gp = toGraph(t.clientX, t.clientY);
+      touchState.dragNode.x = gp.x;
+      touchState.dragNode.y = gp.y;
+      touchState.dragNode.vx = 0;
+      touchState.dragNode.vy = 0;
+      draw();
+    } else if (touchState.lastPos) {
+      transform.x += t.clientX - touchState.lastPos.x;
+      transform.y += t.clientY - touchState.lastPos.y;
+      draw();
+    }
+    touchState.lastPos = { x: t.clientX, y: t.clientY };
+  } else if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (lastPinchDist > 0) {
+      const scale = dist / lastPinchDist;
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      transform.x = cx - width / 2 - (cx - width / 2 - transform.x) * scale;
+      transform.y = cy - height / 2 - (cy - height / 2 - transform.y) * scale;
+      transform.k *= scale;
+      transform.k = Math.max(0.3, Math.min(4, transform.k));
+      draw();
+    }
+    lastPinchDist = dist;
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  if (e.changedTouches.length === 1 && e.touches.length === 0 && touchState.startPos) {
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchState.startPos.x;
+    const dy = t.clientY - touchState.startPos.y;
+    if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+      const gp = toGraph(t.clientX, t.clientY);
+      const node = findNodeAt(gp.x, gp.y);
+      if (node) {
+        selectedNodeId = node.id;
+        window.webkit.messageHandlers.voiceGraphHandler.postMessage({
+          action: 'nodeSelected',
+          nodeId: node.id,
+          nodeType: node.type,
+          nodeLabel: node.label
+        });
+      } else {
+        selectedNodeId = null;
+        window.webkit.messageHandlers.voiceGraphHandler.postMessage({ action: 'deselected' });
+      }
+      draw();
+    }
+  }
+  touchState = { down: false, startPos: null, lastPos: null, dragNode: null };
+  lastPinchDist = 0;
+});
+
+// Mouse support (simulator)
+let mouseDown = false, mouseStart = null, mouseLast = null, mouseDrag = null;
+
+canvas.addEventListener('mousedown', e => {
+  mouseDown = true;
+  mouseStart = { x: e.clientX, y: e.clientY };
+  mouseLast = { x: e.clientX, y: e.clientY };
+  const gp = toGraph(e.clientX, e.clientY);
+  mouseDrag = findNodeAt(gp.x, gp.y);
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (!mouseDown) return;
+  if (mouseDrag) {
+    const gp = toGraph(e.clientX, e.clientY);
+    mouseDrag.x = gp.x; mouseDrag.y = gp.y;
+    mouseDrag.vx = 0; mouseDrag.vy = 0;
+    draw();
+  } else if (mouseLast) {
+    transform.x += e.clientX - mouseLast.x;
+    transform.y += e.clientY - mouseLast.y;
+    draw();
+  }
+  mouseLast = { x: e.clientX, y: e.clientY };
+});
+
+canvas.addEventListener('mouseup', e => {
+  if (mouseDown && mouseStart) {
+    const dx = e.clientX - mouseStart.x;
+    const dy = e.clientY - mouseStart.y;
+    if (Math.abs(dx) < 5 && Math.abs(dy) < 5) {
+      const gp = toGraph(e.clientX, e.clientY);
+      const node = findNodeAt(gp.x, gp.y);
+      if (node) {
+        selectedNodeId = node.id;
+        window.webkit.messageHandlers.voiceGraphHandler.postMessage({
+          action: 'nodeSelected',
+          nodeId: node.id,
+          nodeType: node.type,
+          nodeLabel: node.label
+        });
+      } else {
+        selectedNodeId = null;
+        window.webkit.messageHandlers.voiceGraphHandler.postMessage({ action: 'deselected' });
+      }
+      draw();
+    }
+  }
+  mouseDown = false; mouseStart = null; mouseLast = null; mouseDrag = null;
+});
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const scale = e.deltaY > 0 ? 0.95 : 1.05;
+  const lx = e.clientX - width / 2;
+  const ly = e.clientY - height / 2;
+  transform.x = lx - (lx - transform.x) * scale;
+  transform.y = ly - (ly - transform.y) * scale;
+  transform.k *= scale;
+  transform.k = Math.max(0.3, Math.min(4, transform.k));
+  draw();
+}, { passive: false });
+
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+  isDark = e.matches; draw();
+});
+
+window.addEventListener('load', () => {
+  resize();
+  window.addEventListener('resize', () => { resize(); draw(); });
+  window.webkit.messageHandlers.voiceGraphHandler.postMessage({ action: 'ready' });
+});
+</script>
+</body>
+</html>
