@@ -100,6 +100,7 @@ struct SettingsDrawer: View {
                     promptsSection
                     pathsSection
                 }
+                .scrollDisabled(dragAxis == .horizontal)
                 .navigationTitle("Settings")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
