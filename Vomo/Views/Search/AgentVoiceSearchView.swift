@@ -304,10 +304,20 @@ struct AgentVoiceSearchView: View {
         return buildSearchResponse(vault: vault, results: results, reason: reason, queryForSnippet: nil)
     }
 
+    /// Filter files by the user's voice search folder scope settings.
+    /// Include/exclude lists are checked against each file's `folderPath`.
+    private func applyFolderScope(_ files: [VaultFile]) -> [VaultFile] {
+        let settings = SettingsManager.shared
+        guard !settings.voiceSearchIncludeFolders.isEmpty
+            || !settings.voiceSearchExcludeFolders.isEmpty else { return files }
+        return files.filter { settings.isInVoiceSearchScope(folderPath: $0.folderPath) }
+    }
+
     /// Unified search response builder with optional auto-load content.
     /// Adds found files to UI, fetches metadata, and optionally loads note body content.
     @MainActor
     private func buildSearchResponse(vault: VaultManager, results: [VaultFile], reason: String, queryForSnippet: String?) -> String {
+        let results = applyFolderScope(results)
         let autoLoad = VoiceSettings.shared.autoLoadNoteContent
 
         // Fetch metadata

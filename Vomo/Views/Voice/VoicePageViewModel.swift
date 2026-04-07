@@ -56,53 +56,16 @@ final class VoicePageViewModel {
     }
 
     private func buildConfig(vault: VaultManager) -> VoiceSessionConfig {
-        let rules = VoiceSettings.shared.searchCustomRules.trimmingCharacters(in: .whitespacesAndNewlines)
+        let autoLoad = VoiceSettings.shared.autoLoadNoteContent
 
-        var systemPrompt: String
-        if let override = VomoConfig.readPromptFile("agent.txt", vaultURL: vault.vaultURL) {
-            let vars: [String: String] = [
-                "file_count": "\(vault.files.count)",
-                "today": Self.todayString,
-                "custom_rules": rules
-            ]
-            systemPrompt = VomoConfig.applyVariables(VomoConfig.stripComments(override), vars: vars)
-        } else {
-            systemPrompt = """
-            You are a voice assistant for the user's Obsidian vault. You can search, \
-            browse, open, and read their notes. Keep responses concise for voice.
+        let vars: [String: String] = [
+            "file_count": "\(vault.files.count)",
+            "today": Self.todayString,
+            "auto_load": autoLoad ? "true" : "",
+            "no_auto_load": autoLoad ? "" : "true"
+        ]
 
-            CAPABILITIES:
-            - Search for notes by topic, keyword, or content (search_vault)
-            - Search by date range — "last week", "yesterday", "in March" (search_vault_by_date)
-            - Search by metadata attribute — tag, mood, status, category, etc. (search_vault_by_attribute)
-            - Open specific files for the user to view (open_file)
-            - Read file contents to answer questions or discuss them (read_file_content)
-            - Create new documents — "write a note about X", "create a doc" (create_doc)
-            - Move files to different folders — "move this to Projects" (move_file)
-
-            OBSIDIAN FORMAT:
-            - This is an Obsidian vault. Notes are markdown files.
-            - To reference another note, use wikilinks: [[Note Title]]
-            - To reference with an alias: [[Note Title|display text]]
-            - When creating docs with create_doc, use wikilinks to link related notes.
-            - Tags use # prefix in frontmatter or inline: #tag
-
-            BEHAVIOR:
-            - Pick the right tool for the query type
-            - For temporal queries, ALWAYS use search_vault_by_date
-            - For attribute queries, use search_vault_by_attribute
-            - Announce what you found briefly
-            - Keep responses concise — this is voice, not text
-            - Today's date is \(Self.todayString).
-
-            The user's vault contains \(vault.files.count) notes.
-            """
-
-            // Append custom rules
-            if !rules.isEmpty {
-                systemPrompt += "\n\nUSER RULES:\n\(rules)"
-            }
-        }
+        var systemPrompt = PromptManager.resolve(.voice, vaultURL: vault.vaultURL, vars: vars)
 
         // Append vault-level voice instructions from .vomo/voice_instructions.txt
         if let voiceInstructions = VomoConfig.voiceInstructions(vaultURL: vault.vaultURL) {

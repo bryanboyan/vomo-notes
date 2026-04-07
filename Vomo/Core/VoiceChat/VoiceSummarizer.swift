@@ -1,97 +1,101 @@
 import Foundation
 
-/// Uses Grok text API to summarize a voice conversation transcript
+/// Save style determines what to extract from the transcript
+enum SaveStyle: String, CaseIterable, Identifiable {
+    case myThoughts = "My Thoughts"
+    case fullSession = "Full Session"
+    case rawTranscript = "Raw Transcript"
+
+    var id: String { rawValue }
+
+    var description: String {
+        switch self {
+        case .myThoughts: return "Extract your ideas, strip everything else"
+        case .fullSession: return "Clean up both sides, keep the flow"
+        case .rawTranscript: return "Unprocessed transcript as-is"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .myThoughts: return "brain.head.profile"
+        case .fullSession: return "text.bubble"
+        case .rawTranscript: return "text.quote"
+        }
+    }
+
+    var promptID: PromptID? {
+        switch self {
+        case .myThoughts: return .saveMyThoughts
+        case .fullSession: return .saveFullSession
+        case .rawTranscript: return nil
+        }
+    }
+
+    func summarizationPrompt(vaultURL: URL? = nil) -> String {
+        guard let pid = promptID else { return "" }
+        return PromptManager.resolve(pid, vaultURL: vaultURL)
+    }
+}
+
+/// Save action determines how the output is used
+enum SaveAction {
+    case createNew
+    case appendToDoc
+    case replaceDoc(existingBody: String)
+
+    var modifier: String {
+        switch self {
+        case .createNew:
+            return "\nSAVE ACTION: Output a standalone note."
+        case .appendToDoc:
+            return "\nSAVE ACTION: Output a section suitable for appending to an existing document. Do not repeat the document title."
+        case .replaceDoc(let existingBody):
+            return """
+            \nSAVE ACTION: Merge the conversation insights into the existing document below, \
+            preserving its structure and headings. Integrate new information naturally. \
+            Do NOT add any frontmatter (YAML between --- delimiters). Output only the merged document body in markdown. \
+            LANGUAGE: Write in the same language as the existing document and conversation — do not translate.
+
+            <existing_document>
+            \(existingBody)
+            </existing_document>
+            """
+        }
+    }
+}
+
+/// Uses a text model API to summarize voice conversation transcripts
 struct VoiceSummarizer {
 
-    // MARK: - Creation Flow (SaveMode-based)
+    // MARK: - Public API
 
-    /// Summarize a transcript using the specified save mode (for voice creation)
-    /// - density: 0.2 (extreme compression) to 1.0 (keep nearly everything)
+    /// Summarize a transcript using the specified save style
+    /// - Parameters:
+    ///   - transcript: The voice conversation transcript
+    ///   - style: What to extract (my thoughts only, or full session)
+    ///   - density: 0.2 (extreme compression) to 1.0 (keep nearly everything)
+    ///   - action: How to use the output (create new, append, or replace/merge)
+    ///   - vaultURL: The vault URL for prompt resolution
     static func summarize(
         transcript: String,
-        saveMode: SaveMode,
+        style: SaveStyle,
         density: Double = 0.5,
-        apiKey: String,
+        action: SaveAction = .createNew,
         vaultURL: URL? = nil
     ) async throws -> String {
-        guard saveMode != .rawTranscript else { return transcript }
+        guard style != .rawTranscript else { return transcript }
 
         let pct = Int(density * 100)
-        var densityInstruction = """
-
-        COMPRESSION LEVEL: \(pct)%
-        - 20% = Extract only the absolute essential points. A few key sentences at most.
-        - 50% = Moderate compression. Keep key ideas and important supporting details.
-        - 80% = Light compression. Keep most content, remove only filler and redundancy.
-        - 100% = Minimal compression. Keep nearly everything, just clean up language.
-        Scale your output proportionally. Target roughly \(pct)% of the meaningful content.
-        """
-
-        // Check for density section override in summarization.txt
-        if let override = VomoConfig.readPromptFile("summarization.txt", vaultURL: vaultURL) {
-            let sections = VomoConfig.parseSections(override)
-            if let densitySection = sections["density"], !densitySection.isEmpty {
-                densityInstruction = "\n" + VomoConfig.applyVariables(densitySection, vars: ["density_pct": "\(pct)"])
-            }
-        }
-
-        return try await callGrok(
-            systemPrompt: saveMode.summarizationPrompt(vaultURL: vaultURL) + densityInstruction,
-            userMessage: "Here is the voice transcript:\n\n\(transcript)",
-            apiKey: apiKey
+        let basePrompt = style.summarizationPrompt(vaultURL: vaultURL)
+        let densityInstruction = "\n" + PromptManager.resolve(
+            .saveDensity, vaultURL: vaultURL, vars: ["density_pct": "\(pct)"]
         )
-    }
+        let actionModifier = action.modifier
 
-    // MARK: - Document Voice Chat (SummarizationStyle-based)
-
-    /// Summarize a transcript using the specified style (for search voice flow)
-    static func summarize(
-        transcript: String,
-        style: SummarizationStyle,
-        apiKey: String,
-        vaultURL: URL? = nil
-    ) async throws -> String {
-        return try await callGrok(
-            systemPrompt: style.summarizationPrompt(vaultURL: vaultURL),
-            userMessage: "Here is the transcript to summarize:\n\n\(transcript)",
-            apiKey: apiKey
-        )
-    }
-
-    /// Rewrite a document by merging existing content with summarized conversation
-    static func rewriteDocument(
-        existingBody: String,
-        summary: String,
-        apiKey: String,
-        vaultURL: URL? = nil
-    ) async throws -> String {
-        var rewritePrompt = """
-        You are a document editor. Merge the existing document content with the new conversation summary \
-        into a cohesive, well-structured document. Preserve the existing content's structure and headings. \
-        Integrate the new information naturally. Do NOT add any frontmatter (YAML between --- delimiters). \
-        Output only the merged document body in markdown.
-        """
-
-        // Check for document_rewrite section in summarization.txt
-        if let override = VomoConfig.readPromptFile("summarization.txt", vaultURL: vaultURL) {
-            let sections = VomoConfig.parseSections(override)
-            if let rewriteSection = sections["document_rewrite"], !rewriteSection.isEmpty {
-                rewritePrompt = rewriteSection
-            }
-        }
-
-        return try await callGrok(
-            systemPrompt: rewritePrompt,
-            userMessage: """
-            ## Existing Document
-            \(existingBody)
-
-            ## New Conversation Summary
-            \(summary)
-
-            Please merge these into a single cohesive document.
-            """,
-            apiKey: apiKey
+        return try await callTextAPI(
+            systemPrompt: basePrompt + densityInstruction + actionModifier,
+            userMessage: "Here is the voice transcript:\n\n\(transcript)"
         )
     }
 
@@ -100,7 +104,6 @@ struct VoiceSummarizer {
         fileURL: URL,
         summary: String,
         editMode: EditMode,
-        apiKey: String,
         vaultURL: URL? = nil
     ) async throws {
         let content = try String(contentsOf: fileURL, encoding: .utf8)
@@ -114,10 +117,11 @@ struct VoiceSummarizer {
             newContent = content + appendSection
 
         case .rewrite:
-            let mergedBody = try await rewriteDocument(
-                existingBody: body,
-                summary: summary,
-                apiKey: apiKey,
+            let mergedBody = try await summarize(
+                transcript: summary,
+                style: .fullSession,
+                density: 1.0,
+                action: .replaceDoc(existingBody: body),
                 vaultURL: vaultURL
             )
             if let fm = frontmatter {
@@ -130,22 +134,54 @@ struct VoiceSummarizer {
         try newContent.write(to: fileURL, atomically: true, encoding: .utf8)
     }
 
-    // MARK: - Private
+    // MARK: - Private — Vendor Dispatch
 
-    private static func callGrok(
+    private static func callTextAPI(
+        systemPrompt: String,
+        userMessage: String,
+        temperature: Double = 0.3
+    ) async throws -> String {
+        let vendor = VoiceSettings.shared.textModelVendor
+        guard let apiKey = APIKeychain.load(vendor: vendor.keychainKey) else {
+            throw SummarizerError.apiError("No API key configured for \(vendor.displayName). Add one in Settings → Providers.")
+        }
+
+        switch vendor {
+        case .xai, .openai:
+            return try await callOpenAICompatible(
+                endpoint: vendor.endpoint,
+                model: vendor.model,
+                systemPrompt: systemPrompt,
+                userMessage: userMessage,
+                apiKey: apiKey,
+                temperature: temperature
+            )
+        case .anthropic:
+            return try await callAnthropic(
+                systemPrompt: systemPrompt,
+                userMessage: userMessage,
+                apiKey: apiKey,
+                temperature: temperature
+            )
+        }
+    }
+
+    private static func callOpenAICompatible(
+        endpoint: String,
+        model: String,
         systemPrompt: String,
         userMessage: String,
         apiKey: String,
-        temperature: Double = 0.3
+        temperature: Double
     ) async throws -> String {
-        let url = URL(string: "https://api.x.ai/v1/chat/completions")!
+        let url = URL(string: endpoint)!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         let body: [String: Any] = [
-            "model": "grok-3-fast",
+            "model": model,
             "messages": [
                 ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": userMessage]
@@ -173,6 +209,50 @@ struct VoiceSummarizer {
         }
 
         return content
+    }
+
+    private static func callAnthropic(
+        systemPrompt: String,
+        userMessage: String,
+        apiKey: String,
+        temperature: Double
+    ) async throws -> String {
+        let url = URL(string: "https://api.anthropic.com/v1/messages")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "model": TextModelVendor.anthropic.model,
+            "system": systemPrompt,
+            "messages": [
+                ["role": "user", "content": userMessage]
+            ],
+            "temperature": temperature,
+            "max_tokens": 4096
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            DiagnosticLogger.shared.error("Summarizer", "Anthropic API returned status \(statusCode)")
+            throw SummarizerError.apiError("Anthropic API returned non-200 status (\(statusCode))")
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let contentArray = json["content"] as? [[String: Any]],
+              let firstBlock = contentArray.first,
+              let text = firstBlock["text"] as? String else {
+            DiagnosticLogger.shared.error("Summarizer", "Failed to parse Anthropic response")
+            throw SummarizerError.parseError
+        }
+
+        return text
     }
 
     private static func formattedTimestamp() -> String {

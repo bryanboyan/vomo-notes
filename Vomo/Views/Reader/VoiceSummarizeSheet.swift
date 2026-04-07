@@ -8,14 +8,13 @@ struct VoiceSummarizeSheet: View {
     @Binding var isPresented: Bool
     @Environment(VaultManager.self) private var vault
 
-    @State private var selectedStyle: SummarizationStyle = .conversational
+    @State private var selectedSaveStyle: SaveStyle = .fullSession
 
     init(file: VaultFile, transcript: TranscriptManager, initialStyle: SummarizationStyle = .conversational, isPresented: Binding<Bool>) {
         self.file = file
         self.transcript = transcript
         self.initialStyle = initialStyle
         self._isPresented = isPresented
-        self._selectedStyle = State(initialValue: initialStyle)
     }
     @State private var selectedEditMode: EditMode = .append
     @State private var isSummarizing = false
@@ -51,13 +50,17 @@ struct VoiceSummarizeSheet: View {
                     .frame(maxHeight: 120)
                 }
 
-                // Summarization style
-                Section("Summary Style") {
-                    ForEach(SummarizationStyle.allCases) { style in
+                // Save style
+                Section("Save Style") {
+                    ForEach(SaveStyle.allCases) { style in
                         Button {
-                            selectedStyle = style
+                            selectedSaveStyle = style
                         } label: {
                             HStack {
+                                Image(systemName: style.icon)
+                                    .font(.body)
+                                    .frame(width: 24)
+                                    .foregroundStyle(selectedSaveStyle == style ? Color.obsidianPurple : .secondary)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(style.rawValue)
                                         .font(.subheadline)
@@ -67,7 +70,7 @@ struct VoiceSummarizeSheet: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                if selectedStyle == style {
+                                if selectedSaveStyle == style {
                                     Image(systemName: "checkmark.circle.fill")
                                         .foregroundStyle(Color.obsidianPurple)
                                 }
@@ -162,7 +165,6 @@ struct VoiceSummarizeSheet: View {
     }
 
     private func generateSummary() {
-        guard let apiKey = APIKeychain.load(vendor: VoiceSettings.shared.realtimeVendor.rawValue) else { return }
         isSummarizing = true
         error = nil
 
@@ -170,8 +172,8 @@ struct VoiceSummarizeSheet: View {
             do {
                 let result = try await VoiceSummarizer.summarize(
                     transcript: transcript.formattedTranscript,
-                    style: selectedStyle,
-                    apiKey: apiKey,
+                    style: selectedSaveStyle,
+                    density: 0.5,
                     vaultURL: vault.vaultURL
                 )
                 await MainActor.run {
@@ -188,7 +190,7 @@ struct VoiceSummarizeSheet: View {
     }
 
     private func writeToNote() {
-        guard let apiKey = APIKeychain.load(vendor: VoiceSettings.shared.realtimeVendor.rawValue), let summary else { return }
+        guard let summary else { return }
         isSummarizing = true
         error = nil
 
@@ -198,7 +200,6 @@ struct VoiceSummarizeSheet: View {
                     fileURL: file.url,
                     summary: summary,
                     editMode: selectedEditMode,
-                    apiKey: apiKey,
                     vaultURL: vault.vaultURL
                 )
                 await MainActor.run {

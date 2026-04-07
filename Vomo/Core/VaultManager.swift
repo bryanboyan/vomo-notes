@@ -106,6 +106,7 @@ final class VaultManager {
             UserDefaults.standard.set(data, forKey: bookmarkKey)
             vaultURL = url
             cache = VaultCache(vaultURL: url)
+            PromptManager.installAllDefaults(vaultURL: url)
         } catch {
             print("Failed to save bookmark: \(error)")
         }
@@ -185,6 +186,7 @@ final class VaultManager {
         isLocalPath = true
         vaultURL = url
         cache = VaultCache(vaultURL: url)
+        PromptManager.installAllDefaults(vaultURL: url)
     }
 
     private func restoreDirectPath() {

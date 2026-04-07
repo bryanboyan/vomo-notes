@@ -63,6 +63,12 @@ struct MarkdownToolbar: View {
                     onBeforeAction?()
                     insertMarkdown(prefix: "#")
                 }
+
+                Divider().frame(height: 20).padding(.horizontal, 4)
+
+                toolbarButton("Dismiss Keyboard", icon: "keyboard.chevron.compact.down") {
+                    hideKeyboard()
+                }
             }
             .padding(.horizontal, 12)
         }

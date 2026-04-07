@@ -28,6 +28,35 @@ final class SettingsManager {
         didSet { UserDefaults.standard.set(saveTranscriptions, forKey: Keys.saveTranscriptions) }
     }
 
+    // MARK: - Voice Search Scope
+
+    var voiceSearchIncludeFolders: [String] {
+        didSet { UserDefaults.standard.set(voiceSearchIncludeFolders, forKey: Keys.voiceSearchIncludeFolders) }
+    }
+    var voiceSearchExcludeFolders: [String] {
+        didSet { UserDefaults.standard.set(voiceSearchExcludeFolders, forKey: Keys.voiceSearchExcludeFolders) }
+    }
+
+    func isInVoiceSearchScope(folderPath: String) -> Bool {
+        if !voiceSearchIncludeFolders.isEmpty {
+            return voiceSearchIncludeFolders.contains {
+                folderPath == $0 || folderPath.hasPrefix($0 + "/")
+            }
+        }
+        if !voiceSearchExcludeFolders.isEmpty {
+            return !voiceSearchExcludeFolders.contains {
+                folderPath == $0 || folderPath.hasPrefix($0 + "/")
+            }
+        }
+        return true
+    }
+
+    var voiceSearchScopeSummary: String {
+        if !voiceSearchIncludeFolders.isEmpty { return "\(voiceSearchIncludeFolders.count) included" }
+        if !voiceSearchExcludeFolders.isEmpty { return "\(voiceSearchExcludeFolders.count) excluded" }
+        return "All folders"
+    }
+
     // MARK: - Init + Migration
 
     private init() {
@@ -44,6 +73,8 @@ final class SettingsManager {
         saveTranscriptions = defaults.object(forKey: Keys.saveTranscriptions) == nil
             ? true
             : defaults.bool(forKey: Keys.saveTranscriptions)
+        voiceSearchIncludeFolders = defaults.stringArray(forKey: Keys.voiceSearchIncludeFolders) ?? []
+        voiceSearchExcludeFolders = defaults.stringArray(forKey: Keys.voiceSearchExcludeFolders) ?? []
     }
 
     private static func migrateOldKeys(_ defaults: UserDefaults) {
@@ -60,5 +91,7 @@ final class SettingsManager {
         static let dailyNotesFolder = "settings.dailyNotesFolder"
         static let saveTranscriptions = "settings.saveTranscriptions"
         static let migrated = "settings.migrated"
+        static let voiceSearchIncludeFolders = "settings.voiceSearch.includeFolders"
+        static let voiceSearchExcludeFolders = "settings.voiceSearch.excludeFolders"
     }
 }

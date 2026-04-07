@@ -26,7 +26,6 @@ struct SearchView: View {
                 }
                 .padding(.bottom, 16)
             }
-            .scrollDismissesKeyboard(.interactively)
 
             // Bottom search bar (Safari-style)
             bottomSearchBar

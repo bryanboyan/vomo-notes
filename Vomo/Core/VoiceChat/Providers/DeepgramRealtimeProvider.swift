@@ -22,6 +22,8 @@ final class DeepgramRealtimeProvider: NSObject, RealtimeVoiceProvider {
 
     // Deepgram uses 16kHz for input, 24kHz for output
     private let inputSampleRate: Double = 16000
+    /// Mic gain: attenuate during playback to suppress echo, normal otherwise.
+    private var micGain: Float { playerNode.isPlaying ? 0.15 : 1.0 }
     private let outputSampleRate: Double = 24000
     private let outputFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false)!
 
@@ -61,10 +63,9 @@ final class DeepgramRealtimeProvider: NSObject, RealtimeVoiceProvider {
 
         // Send agent config after connection
         Task {
-            let systemPrompt = systemInstructions ?? """
-            You are a helpful reading assistant. The user has opened a document and wants to discuss it with you. \
-            Answer questions, provide insights, and help them understand the content.
-            """
+            let systemPrompt = systemInstructions ?? PromptManager.resolve(
+                .docConversational, vaultURL: nil, vars: [:]
+            )
 
             var agentConfig: [String: Any] = [
                 "type": "SettingsConfiguration",
@@ -219,7 +220,7 @@ final class DeepgramRealtimeProvider: NSObject, RealtimeVoiceProvider {
         int16Data.withUnsafeMutableBytes { rawBuffer in
             let int16Buffer = rawBuffer.bindMemory(to: Int16.self)
             for i in 0..<frameCount {
-                let sample = max(-1.0, min(1.0, floatData[i]))
+                let sample = max(-1.0, min(1.0, floatData[i] * self.micGain))
                 int16Buffer[i] = Int16(sample * 32767)
             }
         }

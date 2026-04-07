@@ -153,67 +153,68 @@ struct VoicePage: View {
                 .font(.title3)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 24) {
-                // PTT button
-                Button {
-                    viewModel.session.switchToPTT()
-                    startSession()
-                } label: {
-                    VStack(spacing: 8) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.orange.opacity(0.15))
-                                .frame(width: 72, height: 72)
-                            Image(systemName: "hand.tap.fill")
-                                .font(.title2)
-                                .foregroundStyle(.orange)
+            VStack(spacing: 16) {
+                HStack(spacing: 24) {
+                    // PTT button
+                    Button {
+                        viewModel.session.switchToPTT()
+                        startSession()
+                    } label: {
+                        VStack(spacing: 8) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.orange.opacity(0.15))
+                                    .frame(width: 72, height: 72)
+                                Image(systemName: "hand.tap.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.orange)
+                            }
+                            Text("Push to Talk")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.primary)
                         }
-                        Text("Push to Talk")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.primary)
                     }
-                }
-                .simultaneousGesture(
-                    LongPressGesture(minimumDuration: 0.5)
-                        .onEnded { _ in
-                            let generator = UIImpactFeedbackGenerator(style: .heavy)
-                            generator.impactOccurred()
-                            showQuickTranscription = true
-                        }
-                )
 
-                // Interactive button
+                    // Interactive button
+                    Button {
+                        viewModel.session.switchToInteractive()
+                        startSession()
+                    } label: {
+                        VStack(spacing: 8) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.green.opacity(0.15))
+                                    .frame(width: 72, height: 72)
+                                Image(systemName: "waveform")
+                                    .font(.title2)
+                                    .foregroundStyle(.green)
+                            }
+                            Text("Interactive")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.primary)
+                        }
+                    }
+                }
+
+                // Transcribe button
                 Button {
-                    viewModel.session.switchToInteractive()
-                    startSession()
+                    showQuickTranscription = true
                 } label: {
                     VStack(spacing: 8) {
                         ZStack {
                             Circle()
-                                .fill(Color.green.opacity(0.15))
+                                .fill(Color.obsidianPurple.opacity(0.15))
                                 .frame(width: 72, height: 72)
-                            Image(systemName: "waveform")
+                            Image(systemName: "text.word.spacing")
                                 .font(.title2)
-                                .foregroundStyle(.green)
+                                .foregroundStyle(Color.obsidianPurple)
                         }
-                        Text("Interactive")
+                        Text("Transcribe")
                             .font(.subheadline.bold())
                             .foregroundStyle(.primary)
                     }
                 }
-                .simultaneousGesture(
-                    LongPressGesture(minimumDuration: 0.5)
-                        .onEnded { _ in
-                            let generator = UIImpactFeedbackGenerator(style: .heavy)
-                            generator.impactOccurred()
-                            showQuickTranscription = true
-                        }
-                )
             }
-
-            Text("Long press for transcription")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
 
             Spacer()
         }
@@ -1161,7 +1162,7 @@ struct VoiceSaveNewNoteSheet: View {
     @Environment(VaultManager.self) var vault
     @Environment(\.dismiss) private var dismiss
 
-    @State private var selectedStyle: SummarizationStyle = .conversational
+    @State private var selectedSaveStyle: SaveStyle = .fullSession
     @State private var isSummarizing = false
     @State private var summary: String?
     @State private var noteTitle = ""
@@ -1173,12 +1174,16 @@ struct VoiceSaveNewNoteSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Summary Style") {
-                    ForEach(SummarizationStyle.allCases) { style in
+                Section("Save Style") {
+                    ForEach(SaveStyle.allCases) { style in
                         Button {
-                            selectedStyle = style
+                            selectedSaveStyle = style
                         } label: {
                             HStack {
+                                Image(systemName: style.icon)
+                                    .font(.body)
+                                    .frame(width: 24)
+                                    .foregroundStyle(selectedSaveStyle == style ? Color.obsidianPurple : .secondary)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(style.rawValue)
                                         .font(.subheadline)
@@ -1188,7 +1193,7 @@ struct VoiceSaveNewNoteSheet: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                if selectedStyle == style {
+                                if selectedSaveStyle == style {
                                     Image(systemName: "checkmark.circle.fill")
                                         .foregroundStyle(Color.obsidianPurple)
                                 }
@@ -1272,7 +1277,6 @@ struct VoiceSaveNewNoteSheet: View {
     }
 
     private func generateSummary() {
-        guard let apiKey = APIKeychain.load(vendor: VoiceSettings.shared.realtimeVendor.rawValue) else { return }
         isSummarizing = true
         error = nil
 
@@ -1280,8 +1284,8 @@ struct VoiceSaveNewNoteSheet: View {
             do {
                 let result = try await VoiceSummarizer.summarize(
                     transcript: transcript.formattedTranscript,
-                    style: selectedStyle,
-                    apiKey: apiKey,
+                    style: selectedSaveStyle,
+                    density: 0.5,
                     vaultURL: vault.vaultURL
                 )
                 await MainActor.run {

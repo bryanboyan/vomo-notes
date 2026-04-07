@@ -11,6 +11,8 @@ struct VomoApp: App {
 
     init() {
         APIKeychain.migrateIfNeeded()
+        // All scroll views dismiss keyboard when dragged
+        UIScrollView.appearance().keyboardDismissMode = .interactiveWithAccessory
     }
 
     var body: some Scene {

@@ -26,6 +26,35 @@ struct CalendarView: View {
                 selectedNotePreview(file: file)
             }
         }
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 15)
+                .onChanged { value in
+                    swipeOffset = value.translation.width
+                }
+                .onEnded { value in
+                    let screenWidth = UIScreen.main.bounds.width
+                    let threshold = screenWidth * 0.15
+                    let predicted = value.predictedEndTranslation.width
+                    if value.translation.width < -threshold || predicted < -threshold * 1.5 {
+                        slideDirection = .left
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            swipeOffset = 0
+                            shiftMonth(1)
+                        }
+                    } else if value.translation.width > threshold || predicted > threshold * 1.5 {
+                        slideDirection = .right
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            swipeOffset = 0
+                            shiftMonth(-1)
+                        }
+                    } else {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            swipeOffset = 0
+                        }
+                    }
+                }
+        )
         .navigationTitle("Calendar")
         .task {
             await rebuildIndex()
@@ -112,34 +141,6 @@ struct CalendarView: View {
             removal: .move(edge: slideDirection == .left ? .leading : .trailing)
         ))
         .offset(x: swipeOffset)
-        .gesture(
-            DragGesture(minimumDistance: 15)
-                .onChanged { value in
-                    swipeOffset = value.translation.width
-                }
-                .onEnded { value in
-                    let screenWidth = UIScreen.main.bounds.width
-                    let threshold = screenWidth * 0.15
-                    let predicted = value.predictedEndTranslation.width
-                    if value.translation.width < -threshold || predicted < -threshold * 1.5 {
-                        slideDirection = .left
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            swipeOffset = 0
-                            shiftMonth(1)
-                        }
-                    } else if value.translation.width > threshold || predicted > threshold * 1.5 {
-                        slideDirection = .right
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            swipeOffset = 0
-                            shiftMonth(-1)
-                        }
-                    } else {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            swipeOffset = 0
-                        }
-                    }
-                }
-        )
         .clipped()
     }
 

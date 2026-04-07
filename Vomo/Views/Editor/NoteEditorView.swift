@@ -27,6 +27,7 @@ struct NoteEditorView: View {
     @State private var bodySelectedRange = NSRange(location: 0, length: 0)
     @State private var bodyIsFocused = false
     @State private var editorState = TextEditorState()
+    @State private var showVoiceRecording = false
 
     @FocusState private var titleFocused: Bool
 
@@ -69,6 +70,16 @@ struct NoteEditorView: View {
                     isDiaryFolder: $isDiaryFolder,
                     showPicker: $showFolderPicker
                 )
+            }
+            .fullScreenCover(isPresented: $showVoiceRecording) {
+                VoiceRecordingView()
+            }
+            .onChange(of: showVoiceRecording) { _, showing in
+                if !showing {
+                    // Hide keyboard when returning from voice — user needs buttons, not typing
+                    titleFocused = false
+                    bodyIsFocused = false
+                }
             }
         }
     }
@@ -129,7 +140,6 @@ struct NoteEditorView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .scrollDismissesKeyboard(.interactively)
     }
 
     // MARK: - Folder Selector
@@ -180,6 +190,16 @@ struct NoteEditorView: View {
         }
 
         ToolbarItemGroup(placement: .topBarTrailing) {
+            // Voice create
+            if isNewNote {
+                Button {
+                    showVoiceRecording = true
+                } label: {
+                    Image(systemName: "mic.fill")
+                        .foregroundStyle(Color.obsidianPurple)
+                }
+            }
+
             // Toggle properties
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {

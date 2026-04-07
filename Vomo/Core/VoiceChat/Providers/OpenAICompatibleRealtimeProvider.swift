@@ -29,6 +29,9 @@ class OpenAICompatibleRealtimeProvider: NSObject, RealtimeVoiceProvider {
 
     // Audio format: 24kHz mono PCM16
     private let sampleRate: Double = 24000
+    /// Mic gain: attenuate during playback to suppress echo, normal otherwise.
+    /// User can still interrupt — loud speech breaks through the attenuation.
+    private var micGain: Float { playerNode.isPlaying ? 0.15 : 1.0 }
     // Note: can't use `lazy` with @Observable — it turns properties into computed
     private let outputFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false)!
 
@@ -154,14 +157,9 @@ class OpenAICompatibleRealtimeProvider: NSObject, RealtimeVoiceProvider {
     // MARK: - Session Configuration
 
     private func sendSessionConfig(documentContent: String, instructions: String?) async {
-        let systemPrompt = instructions ?? """
-        You are a helpful reading assistant. The user has opened the following document and wants to discuss it with you. \
-        Answer questions, provide insights, and help them understand the content.
-
-        <document>
-        \(documentContent)
-        </document>
-        """
+        let systemPrompt = instructions ?? PromptManager.resolve(
+            .docConversational, vaultURL: nil, vars: ["document_content": documentContent, "document_title": ""]
+        )
 
         var sessionDict: [String: Any] = [
             "voice": voice,
@@ -294,12 +292,12 @@ class OpenAICompatibleRealtimeProvider: NSObject, RealtimeVoiceProvider {
         guard let floatData = buffer.floatChannelData?[0] else { return }
         let frameCount = Int(buffer.frameLength)
 
-        // Convert Float32 → Int16 PCM
+        // Convert Float32 → Int16 PCM with gain boost
         var int16Data = Data(count: frameCount * 2)
         int16Data.withUnsafeMutableBytes { rawBuffer in
             let int16Buffer = rawBuffer.bindMemory(to: Int16.self)
             for i in 0..<frameCount {
-                let sample = max(-1.0, min(1.0, floatData[i]))
+                let sample = max(-1.0, min(1.0, floatData[i] * self.micGain))
                 int16Buffer[i] = Int16(sample * 32767)
             }
         }

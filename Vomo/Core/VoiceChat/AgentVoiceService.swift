@@ -58,11 +58,6 @@ final class AgentVoiceService: Identifiable {
         set { VoiceSettings.shared.selectedVoice = newValue }
     }
 
-    static var customRules: String {
-        get { VoiceSettings.shared.searchCustomRules }
-        set { VoiceSettings.shared.searchCustomRules = newValue }
-    }
-
     init() {
         let settings = VoiceSettings.shared
         provider = VoiceProviderFactory.makeRealtime(vendor: settings.realtimeVendor)
@@ -108,97 +103,30 @@ final class AgentVoiceService: Identifiable {
         provider.voice = VoiceSettings.shared.selectedVoice
         provider.tools = Self.toolDefinitions
 
-        let rules = VoiceSettings.shared.searchCustomRules.trimmingCharacters(in: .whitespacesAndNewlines)
         let autoLoad = VoiceSettings.shared.autoLoadNoteContent
 
-        var systemPrompt: String
-        if let override = VomoConfig.readPromptFile("agent.txt", vaultURL: vaultURL) {
-            let vars: [String: String] = [
-                "file_count": "\(fileCount)",
-                "today": Self.todayString,
-                "custom_rules": rules,
-                "auto_load": autoLoad ? "true" : "false"
-            ]
-            systemPrompt = VomoConfig.applyVariables(VomoConfig.stripComments(override), vars: vars)
-        } else {
-            systemPrompt = """
-            You are a voice search assistant for the user's vault. Help them find, explore,
-            create, edit, move, delete and discuss their notes through natural conversation.
+        let vars: [String: String] = [
+            "file_count": "\(fileCount)",
+            "today": Self.todayString,
+            "auto_load": autoLoad ? "true" : "",
+            "no_auto_load": autoLoad ? "" : "true"
+        ]
 
-            CAPABILITIES:
-            - Search for notes by topic, keyword, or content (search_vault)
-            - Search by date range — "last week", "yesterday", "in March" (search_vault_by_date)
-            - Search by metadata attribute — tag, mood, status, category, etc. (search_vault_by_attribute)
-            - Combined multi-criteria search — topic + date + attributes in one call (search_vault_combined)
-            - Open specific files for the user to view (open_file)
-            - Read file contents to answer questions or discuss them (read_file_content)
-            - Create new documents — "write a note about X", "create a doc" (create_doc)
-            - Move files to different folders — "move this to Projects" (move_file)
-            - Update existing notes — change properties (mood, tags, date, status) or edit body content (update_doc)
-
-            TOOL SELECTION GUIDE:
-            1. Simple topic/keyword queries ("notes about machine learning") → search_vault
-            2. Time-based queries ("notes from last week", "yesterday") → search_vault_by_date
-               ALWAYS use search_vault_by_date for ANY temporal reference. NEVER use search_vault for time queries.
-            3. Single attribute queries ("notes tagged X", "happy notes") → search_vault_by_attribute
-            4. Complex multi-criteria queries → search_vault_combined
-               Examples of when to use search_vault_combined:
-               - "meeting notes from last week tagged #work" → query="meeting", start_date/end_date, attributes={"tag":"work"}
-               - "happy journal entries in March" → query="journal", start_date="2026-03-01", end_date="2026-03-31", attributes={"mood":"happy"}
-               - "draft notes about travel" → query="travel", attributes={"status":"draft"}
-            5. When the first search returns too many or too few results:
-               - Too many: refine with search_vault_combined adding more criteria
-               - Too few: broaden by removing criteria or using simpler search_vault
-
-            \(autoLoad ? """
-            AUTO-LOAD MODE (ACTIVE):
-            Search results include the content of each found note (up to 50 notes).
-            You can directly reference and discuss note contents from search results without calling read_file_content.
-            Only use read_file_content if you need the FULL untruncated text of a specific note.
-            When summarizing search results, reference specific details from the loaded content to be helpful.
-            """ : """
-            CONTENT ACCESS:
-            Search results include titles, paths, snippets, and metadata only.
-            To see the full content of a note, call read_file_content.
-            If the user asks about what's IN their notes, proactively read the top results.
-            """)
-
-            OBSIDIAN FORMAT:
-            - This is an Obsidian vault. Notes are markdown files.
-            - To reference another note, use wikilinks: [[Note Title]]
-            - To reference with an alias: [[Note Title|display text]]
-            - When creating docs with create_doc, use wikilinks to link related notes.
-            - Tags use # prefix in frontmatter or inline: #tag
-
-            ENTITY EXTRACTION (GRAPH VIEW):
-            - ALWAYS call extract_entities after processing each user message
-            - Extract people, topics, and places from what the user said
-            - Include connections between related entities
-            - This powers a live conversation graph the user can see
-
-            BEHAVIOR:
-            - Pick the right tool for the query type — prefer search_vault_combined for multi-criteria
-            - Announce what you found briefly ("I found 3 notes about X")
-            - Use open_file to highlight the most relevant result
-            \(autoLoad
-                ? "- You already have note contents from search — summarize key findings directly"
-                : "- If the user wants details, use read_file_content and summarize")
-            - Keep responses concise — this is voice, not text
-            - Ask ONE clarifying question at a time if the query is ambiguous
-            - Today's date is \(Self.todayString). Use this to calculate date ranges.
-
-            The user's vault contains \(fileCount) notes.
-            """
-
-            // Append user's custom rules if any
-            if !rules.isEmpty {
-                systemPrompt += "\n\nUSER RULES:\n\(rules)"
-            }
-        }
+        var systemPrompt = PromptManager.resolve(.voice, vaultURL: vaultURL, vars: vars)
 
         // Append vault-level voice instructions from .vomo/voice_instructions.txt
         if let voiceInstructions = VomoConfig.voiceInstructions(vaultURL: vaultURL) {
             systemPrompt += "\n\nADDITIONAL INSTRUCTIONS:\n\(voiceInstructions)"
+        }
+
+        // Append folder scope constraints
+        let sm = SettingsManager.shared
+        if !sm.voiceSearchIncludeFolders.isEmpty {
+            let list = sm.voiceSearchIncludeFolders.joined(separator: ", ")
+            systemPrompt += "\n\nSEARCH SCOPE: Restricted to folders: \(list). Only search within these folders."
+        } else if !sm.voiceSearchExcludeFolders.isEmpty {
+            let list = sm.voiceSearchExcludeFolders.joined(separator: ", ")
+            systemPrompt += "\n\nSEARCH SCOPE: Excludes folders: \(list). Do not search in these folders."
         }
 
         provider.connect(apiKey: apiKey, documentContent: "", systemInstructions: systemPrompt)

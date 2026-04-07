@@ -21,7 +21,6 @@ struct VoiceRecordingView: View {
     @State private var isPTTActive = false
     @State private var showApiKeyPrompt = false
     @State private var apiKeyInput = ""
-    @State private var showSettings = false
 
     // Save state (populated on transition to .saving)
     @State private var cachedTranscriptID: UUID?
@@ -36,7 +35,7 @@ struct VoiceRecordingView: View {
 
     // Generation sheet
     @State private var showGenerationSheet = false
-    @State private var selectedSaveMode: SaveMode = .userThoughts
+    @State private var selectedSaveMode: SaveStyle = .myThoughts
     @State private var density: Double = 0.5
     @State private var isGenerating = false
     @State private var hasGenerated = false
@@ -90,9 +89,6 @@ struct VoiceRecordingView: View {
                 voiceService?.disconnect()
                 voiceService = nil
             }
-        }
-        .sheet(isPresented: $showSettings) {
-            VoiceCreationSettingsSheet()
         }
     }
 
@@ -237,18 +233,6 @@ struct VoiceRecordingView: View {
     private var voiceControls: some View {
         VStack(spacing: 12) {
             HStack {
-                // Settings
-                Button { showSettings = true } label: {
-                    ZStack {
-                        Circle()
-                            .fill(Color(.systemGray5))
-                            .frame(width: 44, height: 44)
-                        Image(systemName: "gearshape")
-                            .font(.body)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
                 Spacer()
 
                 // Main mic button
@@ -332,8 +316,7 @@ struct VoiceRecordingView: View {
         let service = VoiceProviderFactory.makeRealtime(vendor: VoiceSettings.shared.realtimeVendor)
         service.voice = VoiceSettings.shared.selectedVoice
 
-        let customRules = VoiceSettings.shared.creationCustomPrompt
-        let systemPrompt = recordingMode.systemPrompt(customRules: customRules, vaultURL: vault.vaultURL)
+        let systemPrompt = recordingMode.systemPrompt(vaultURL: vault.vaultURL)
 
         service.isCapturingAudio = true
         service.connect(apiKey: apiKey, documentContent: "", systemInstructions: systemPrompt)
@@ -351,8 +334,7 @@ struct VoiceRecordingView: View {
         let service = VoiceProviderFactory.makeRealtime(vendor: VoiceSettings.shared.realtimeVendor)
         service.voice = VoiceSettings.shared.selectedVoice
 
-        let customRules = VoiceSettings.shared.creationCustomPrompt
-        let systemPrompt = recordingMode.systemPrompt(customRules: customRules, vaultURL: vault.vaultURL)
+        let systemPrompt = recordingMode.systemPrompt(vaultURL: vault.vaultURL)
 
         service.isCapturingAudio = voiceInputMode == .interactive
         service.connect(apiKey: apiKey, documentContent: "", systemInstructions: systemPrompt)
@@ -405,7 +387,7 @@ struct VoiceRecordingView: View {
         let id = transcriptCache.save(service.transcript, mode: recordingMode)
         cachedTranscriptID = id
         cachedTranscript = transcriptCache.load(id)
-        selectedSaveMode = SaveMode.defaultMode(for: recordingMode)
+        selectedSaveMode = .myThoughts
 
         // Disconnect voice
         service.disconnect()
@@ -563,7 +545,7 @@ struct VoiceRecordingView: View {
 
             // Save mode picker
             VStack(spacing: 8) {
-                ForEach(SaveMode.allCases) { mode in
+                ForEach(SaveStyle.allCases) { mode in
                     Button {
                         selectedSaveMode = mode
                     } label: {
@@ -666,7 +648,6 @@ struct VoiceRecordingView: View {
 
         Task {
             do {
-                let apiKey = APIKeychain.load(vendor: VoiceSettings.shared.realtimeVendor.rawValue) ?? ""
                 let result: String
 
                 if selectedSaveMode == .rawTranscript {
@@ -674,9 +655,8 @@ struct VoiceRecordingView: View {
                 } else {
                     result = try await VoiceSummarizer.summarize(
                         transcript: transcript.formattedTranscript,
-                        saveMode: selectedSaveMode,
+                        style: selectedSaveMode,
                         density: density,
-                        apiKey: apiKey,
                         vaultURL: vault.vaultURL
                     )
                 }
@@ -1001,44 +981,3 @@ struct ContentBlockRow: View {
     }
 }
 
-// MARK: - Voice Creation Settings
-
-struct VoiceCreationSettingsSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var customPrompt: String = VoiceSettings.shared.creationCustomPrompt
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextEditor(text: $customPrompt)
-                        .font(.body)
-                        .frame(minHeight: 120)
-                } header: {
-                    Text("Custom Instructions")
-                } footer: {
-                    Text("Tell the AI how to guide you. For example: \"Focus on technical details\" or \"Ask about my feelings and motivations\". These are appended to the default prompt.")
-                }
-
-                Section {
-                    Button("Reset to Default") {
-                        customPrompt = ""
-                    }
-                    .foregroundStyle(.red)
-                }
-            }
-            .navigationTitle("Voice Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        VoiceSettings.shared.creationCustomPrompt = customPrompt
-                        dismiss()
-                    }
-                    .bold()
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-    }
-}

@@ -29,7 +29,7 @@ final class WatchVoiceBridge {
 
         let recordingMode = RecordingMode(rawValue: config.recordingMode) ?? .conversational
         let settings = VoiceSettings.shared
-        let systemPrompt = recordingMode.systemPrompt(customRules: settings.creationCustomPrompt)
+        let systemPrompt = recordingMode.systemPrompt()
         inputMode = config.inputMode == "ptt" ? .ptt : .interactive
 
         let service = VoiceProviderFactory.makeRealtime(vendor: VoiceSettings.shared.realtimeVendor)

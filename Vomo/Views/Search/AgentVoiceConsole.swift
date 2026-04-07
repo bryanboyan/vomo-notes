@@ -192,7 +192,6 @@ struct VoiceSettingsSheet: View {
     @Binding var selectedVoice: String
     let service: AgentVoiceService
     @Environment(\.dismiss) private var dismiss
-    @State private var customRules = VoiceSettings.shared.searchCustomRules
     @State private var hasApiKey = APIKeychain.hasKey(vendor: VoiceSettings.shared.realtimeVendor.rawValue)
     @State private var apiKeyInput = ""
 
@@ -217,16 +216,6 @@ struct VoiceSettingsSheet: View {
                             }
                         }
                     }
-                }
-
-                Section {
-                    TextEditor(text: $customRules)
-                        .font(.caption)
-                        .frame(minHeight: 100)
-                } header: {
-                    Text("Custom Rules")
-                } footer: {
-                    Text("These rules are added to the AI's system prompt. Changes apply on next connection.")
                 }
 
                 Section("API Key") {
@@ -258,7 +247,6 @@ struct VoiceSettingsSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {
-                        VoiceSettings.shared.searchCustomRules = customRules
                         dismiss()
                     }
                 }

@@ -40,37 +40,17 @@ final class VoiceSettings {
         didSet { UserDefaults.standard.set(sttVendor.rawValue, forKey: Keys.sttVendor) }
     }
 
+    var textModelVendor: TextModelVendor {
+        didSet { UserDefaults.standard.set(textModelVendor.rawValue, forKey: Keys.textModelVendor) }
+    }
+
     // MARK: - Cached Voices (in-memory only)
 
     var cachedVoices: [String] = []
     var isLoadingVoices = false
 
-    // MARK: - Custom Rules
-
-    var searchCustomRules: String {
-        didSet { UserDefaults.standard.set(searchCustomRules, forKey: Keys.searchCustomRules) }
-    }
-
-    var creationCustomPrompt: String {
-        didSet { UserDefaults.standard.set(creationCustomPrompt, forKey: Keys.creationCustomPrompt) }
-    }
-
     var autoLoadNoteContent: Bool {
         didSet { UserDefaults.standard.set(autoLoadNoteContent, forKey: Keys.autoLoadNoteContent) }
-    }
-
-    // MARK: - Server Proxy (kept but not exposed in UI)
-
-    var useServerRealtime: Bool {
-        didSet { UserDefaults.standard.set(useServerRealtime, forKey: Keys.useServerRealtime) }
-    }
-
-    var useServerSTT: Bool {
-        didSet { UserDefaults.standard.set(useServerSTT, forKey: Keys.useServerSTT) }
-    }
-
-    var serverURL: String {
-        didSet { UserDefaults.standard.set(serverURL, forKey: Keys.serverURL) }
     }
 
     // MARK: - Constants
@@ -111,12 +91,14 @@ final class VoiceSettings {
             sttVendor = .apple
         }
 
-        searchCustomRules = defaults.string(forKey: Keys.searchCustomRules) ?? ""
-        creationCustomPrompt = defaults.string(forKey: Keys.creationCustomPrompt) ?? ""
+        if let raw = defaults.string(forKey: Keys.textModelVendor),
+           let vendor = TextModelVendor(rawValue: raw) {
+            textModelVendor = vendor
+        } else {
+            textModelVendor = .xai
+        }
+
         autoLoadNoteContent = defaults.object(forKey: Keys.autoLoadNoteContent) as? Bool ?? true
-        useServerRealtime = defaults.bool(forKey: Keys.useServerRealtime)
-        useServerSTT = defaults.bool(forKey: Keys.useServerSTT)
-        serverURL = defaults.string(forKey: Keys.serverURL) ?? "vomo-server.ngrok-free.app"
     }
 
     private static func migrateOldKeys(_ defaults: UserDefaults) {
@@ -126,24 +108,14 @@ final class VoiceSettings {
         if let oldVoice = defaults.string(forKey: "voice.selectedVoice") {
             defaults.set(oldVoice, forKey: "voice.selectedVoice.xai")
         }
-        if let oldRules = defaults.string(forKey: "voiceSearch.customRules") {
-            defaults.set(oldRules, forKey: Keys.searchCustomRules)
-        }
-        if let oldPrompt = defaults.string(forKey: "creation.voiceSystemPrompt") {
-            defaults.set(oldPrompt, forKey: Keys.creationCustomPrompt)
-        }
         defaults.set(true, forKey: Keys.migrated)
     }
 
     private enum Keys {
         static let realtimeVendor = "voice.realtimeVendor"
         static let sttVendor = "voice.sttVendor"
-        static let searchCustomRules = "voice.searchCustomRules"
-        static let creationCustomPrompt = "voice.creationCustomPrompt"
+        static let textModelVendor = "voice.textModelVendor"
         static let autoLoadNoteContent = "voice.autoLoadNoteContent"
         static let migrated = "voice.settingsMigrated"
-        static let useServerRealtime = "voice.useServerRealtime"
-        static let useServerSTT = "voice.useServerSTT"
-        static let serverURL = "voice.serverURL"
     }
 }

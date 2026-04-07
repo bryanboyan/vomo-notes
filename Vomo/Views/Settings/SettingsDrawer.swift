@@ -9,8 +9,6 @@ struct SettingsDrawer: View {
 
     // Local editing state
     @State private var selectedVoice: String
-    @State private var searchCustomRules: String
-    @State private var creationCustomPrompt: String
     @State private var transcriptionFolder: String
     @State private var creationDefaultFolder: String
     @State private var dailyNotesFolder: String
@@ -21,6 +19,7 @@ struct SettingsDrawer: View {
     // Provider state
     @State private var realtimeVendor: VoiceVendor
     @State private var sttVendor: STTVendor
+    @State private var textModelVendor: TextModelVendor
     @State private var apiKeyInputs: [String: String] = [:]
     @State private var availableVoices: [String] = []
     @State private var isLoadingVoices = false
@@ -30,14 +29,13 @@ struct SettingsDrawer: View {
         let vs = VoiceSettings.shared
         let sm = SettingsManager.shared
         _selectedVoice = State(initialValue: vs.selectedVoice)
-        _searchCustomRules = State(initialValue: vs.searchCustomRules)
-        _creationCustomPrompt = State(initialValue: vs.creationCustomPrompt)
         _transcriptionFolder = State(initialValue: sm.transcriptionFolder)
         _creationDefaultFolder = State(initialValue: sm.creationDefaultFolder)
         _dailyNotesFolder = State(initialValue: sm.dailyNotesFolder)
         _saveTranscriptions = State(initialValue: sm.saveTranscriptions)
         _realtimeVendor = State(initialValue: vs.realtimeVendor)
         _sttVendor = State(initialValue: vs.sttVendor)
+        _textModelVendor = State(initialValue: vs.textModelVendor)
     }
 
     @State private var dragOffset: CGFloat = 0
@@ -96,9 +94,10 @@ struct SettingsDrawer: View {
             NavigationStack {
                 List {
                     providersSection
+                    textModelSection
                     transcribeSection
-                    promptsSection
                     pathsSection
+                    promptCategoriesSections
                 }
                 .scrollDisabled(dragAxis == .horizontal)
                 .navigationTitle("Settings")
@@ -196,6 +195,36 @@ struct SettingsDrawer: View {
         }
     }
 
+    private var textModelSection: some View {
+        Section {
+            Picker("Text Model", selection: $textModelVendor) {
+                ForEach(TextModelVendor.allCases) { vendor in
+                    Text(vendor.displayName).tag(vendor)
+                }
+            }
+            .font(.subheadline)
+            .onChange(of: textModelVendor) {
+                voiceSettings.textModelVendor = textModelVendor
+            }
+
+            // API key status for text model vendor
+            if textModelVendor.keychainKey == realtimeVendor.rawValue {
+                HStack {
+                    Text("\(textModelVendor.displayName) API Key")
+                        .font(.subheadline)
+                    Spacer()
+                    Text("Shared with Voice")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                apiKeyRow(vendor: textModelVendor.keychainKey, label: "\(textModelVendor.displayName) API Key")
+            }
+        } header: {
+            Text("Text Model")
+        }
+    }
+
     @ViewBuilder
     private func apiKeyRow(vendor: String, label: String) -> some View {
         if APIKeychain.hasKey(vendor: vendor) {
@@ -284,24 +313,38 @@ struct SettingsDrawer: View {
         }
     }
 
-    private var promptsSection: some View {
-        Section("Prompts") {
-            DisclosureGroup("Search Custom Rules") {
-                TextEditor(text: $searchCustomRules)
-                    .font(.caption)
-                    .frame(minHeight: 80)
-                    .onChange(of: searchCustomRules) {
-                        voiceSettings.searchCustomRules = searchCustomRules
+    private var promptCategoriesSections: some View {
+        ForEach(PromptManager.categories, id: \.name) { category in
+            Section("Prompts — \(category.name)") {
+                ForEach(category.prompts, id: \.id) { def in
+                    NavigationLink {
+                        PromptDetailView(definition: def)
+                    } label: {
+                        promptRow(def)
                     }
+                }
             }
+        }
+    }
 
-            DisclosureGroup("Creation Custom Prompt") {
-                TextEditor(text: $creationCustomPrompt)
-                    .font(.caption)
-                    .frame(minHeight: 80)
-                    .onChange(of: creationCustomPrompt) {
-                        voiceSettings.creationCustomPrompt = creationCustomPrompt
-                    }
+    private func promptRow(_ def: PromptDefinition) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(def.displayName)
+                    .font(.subheadline)
+                Text(def.description)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if PromptManager.isCustomized(def.id, vaultURL: vault.vaultURL) {
+                Text("Custom")
+                    .font(.caption2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.blue.opacity(0.15))
+                    .foregroundStyle(.blue)
+                    .clipShape(Capsule())
             }
         }
     }
@@ -332,6 +375,20 @@ struct SettingsDrawer: View {
                     .onChange(of: dailyNotesFolder) {
                         settings.dailyNotesFolder = dailyNotesFolder
                     }
+            }
+
+            // Voice Search Scope
+            NavigationLink {
+                VoiceSearchScopeView()
+            } label: {
+                HStack {
+                    Text("Voice Search Scope")
+                        .font(.subheadline)
+                    Spacer()
+                    Text(SettingsManager.shared.voiceSearchScopeSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             // Vault
